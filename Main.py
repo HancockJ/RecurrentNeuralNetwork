@@ -116,7 +116,7 @@ class generateShakespeareText:
     # The main training of the RNN
     def trainRNN(self):
         print("Starting up RNN training...")
-        self.RNN = RNN(numCharacters, self.hiddenSize, self.layerCount, numCharacters).to(DEVICE)
+        self.RNN = RNN(numCharacters, self.hiddenSize, self.layerCount, numCharacters, self.dropRate).to(DEVICE)
 
         # Below are all of the optimizers I experimented with, I found Adam to be the best
         optimizer = torch.optim.Adam(self.RNN.parameters(), lr=self.learnRate)
