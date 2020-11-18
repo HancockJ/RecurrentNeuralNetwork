@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import random
+#import adabound
 
 # I ran my project on GoogleColabs while editing it on my local computer.
 # This is the reason for the different file locations
@@ -31,21 +32,23 @@ numCharacters = len(allCharacters)
 
 
 class RNN(nn.Module):
-    def __init__(self, inputSize, hiddenSize, layerCount, outputSize):
+    def __init__(self, inputSize, hiddenSize, layerCount, outputSize, dropRate):
         super(RNN, self).__init__()
         self.hiddenSize = hiddenSize
         self.layerCount = layerCount
+        self.dropRate = dropRate
 
         self.embed = nn.Embedding(inputSize, hiddenSize)
-        self.LSTM = nn.LSTM(hiddenSize, hiddenSize, layerCount, batch_first=True)
+        # The Long Short Term Memory network to be applied
+        self.LSTM = nn.LSTM(hiddenSize, hiddenSize, layerCount, batch_first=True, dropout=self.dropRate)
+        # Linear transformation to make fully connected layers
         self.fc = nn.Linear(hiddenSize, outputSize)
+        # Probabilistic dropout layer to prevent over-fitting
+        self.dropout = nn.Dropout(self.dropRate)
 
     def forward(self, data, hidden, cell):
         output = self.embed(data)  # Embedding creates a look up table with a dictionary & size
-        print(output.shape)
         output, (hidden, cell) = self.LSTM(output.unsqueeze(1), (hidden, cell))  # Runs data through LSTM
-        print(hidden.shape)
-        print(cell.shape)
         output = self.fc(output.reshape(output.shape[0], -1))  # Runs data through the fully connected later (nn.Linear)
         return output, (hidden, cell)
 
@@ -56,25 +59,29 @@ class RNN(nn.Module):
 
 
 class generateShakespeareText:
+    # Hyper parameters
     def __init__(self):
-        self.sequence = 50
-        self.batchSize = 2
-        self.epochCount = 5000
+        self.sequence = 300     # The size of each sequence ran (Text data is sequential since it goes in order)
+        self.batchSize = 1      # How much the training data is divided into samples (1 = all training data)
+        self.epochCount = 5000  # Simply the amount of iterations of training we do
         self.printStatus = 250  # How often we will display loss & current text generation
-        self.hiddenSize = 256
-        self.layerCount = 2
-        self.learnRate = .003
+        self.hiddenSize = 250   # Amount of hidden features in hidden state
+        self.layerCount = 2     # Number of recurrent layers stacked together
+        self.learnRate = .002   # How much we will adjust model based on loss calculations
+        self.dropRate = .25      # Regularization method to exclude LSTM units that may over-fit
 
-        self.RNN = RNN(numCharacters, self.hiddenSize, self.layerCount, numCharacters).to(DEVICE)
+        self.RNN = RNN(numCharacters, self.hiddenSize, self.layerCount, numCharacters, self.dropRate).to(DEVICE)
 
+    # Takes in a string and converts to Tensor
     def createCharTensor(self, batchString):  # slice of characters (current batch) to a One-Hot Tensor
         tensor = torch.zeros(len(batchString)).long()
         for i in range(len(batchString)):
             tensor[i] = allCharacters.index(batchString[i])
         return tensor
 
+
+    # Gets a random start and stop index from data to create a batch for training
     def getNewBatch(self):
-        # Gets a random start and stop index from data to create a batch for training
         start = random.randint(0, len(inputData) - self.sequence)
         end = start + self.sequence + 1
         batchText = inputData[start:end]
@@ -106,18 +113,22 @@ class generateShakespeareText:
             prediction += predictedChar
             lastChar = self.createCharTensor(predictedChar)
         return prediction
-
+    # The main training of the RNN
     def trainRNN(self):
         print("Starting up RNN training...")
         self.RNN = RNN(numCharacters, self.hiddenSize, self.layerCount, numCharacters).to(DEVICE)
 
+        # Below are all of the optimizers I experimented with, I found Adam to be the best
         optimizer = torch.optim.Adam(self.RNN.parameters(), lr=self.learnRate)
-        criterion = nn.CrossEntropyLoss()
+        #optimizer = torch.optim.SGD(self.RNN.parameters(), lr=self.learnRate, momentum=0.9)
+        #optimizer = adabound.AdaBound(self.RNN.parameters(), lr=1e-3, final_lr=0.1)
 
+        criterion = nn.CrossEntropyLoss()
+        # Running through the entire data set until the max epoch is reached
         for epoch in range(1, self.epochCount + 1):
             inp, target = self.getNewBatch()
             hidden, cell = self.RNN.initializeHiddenAndCell(self.batchSize)
-
+            # Setting gradients back to zero before doing back prop
             self.RNN.zero_grad()
             loss = 0
             inp = inp.to(DEVICE)
@@ -129,26 +140,19 @@ class generateShakespeareText:
                 # Calculates cross entropy loss by comparing predicted value to target value
                 loss += criterion(output, target[:, i])
 
-            # Calculating final loss average
+            # Backward propagation
             loss.backward()
+            # Updating optimizer parameters
             optimizer.step()
+            # Calculating Loss
             loss = loss.item() / self.sequence
-
+            # Prints an updated status for every "printStatus" Epochs
             if epoch % self.printStatus == 0:
                 print("|||| Current Loss = " + str(loss) + " | Epoch = " + str(epoch) + " ||||")
                 print(self.generateText())
-
-
-class HyperParameters:
-    def __init__(self):
-        self.sequence = 420     # The size of each sequence ran (Text data is sequential since it goes in order)
-        self.batchSize = 1      # How much the training data is divided into samples (1 = all training data)
-        self.epochCount = 5000  # Simply the amount of iterations of training we do
-        self.printStatus = 250  # How often we will display loss & current text generation
-        self.hiddenSize = 256   # Amount of hidden features in hidden state
-        self.layerCount = 2     # Number of recurrent layers stacked together
-        self.learnRate = .003   # How much we will adjust model based on loss calculations
-        self.dropRate = .5      # Regularization method to exclude LSTM units that may over-fit
+            # Final output with increased prediction length
+            print("|||| Current Loss = " + str(loss) + " | Epoch = " + str(epoch) + " ||||")
+            print(self.generateText(predictionLength=1000))
 
 
 genText = generateShakespeareText()
